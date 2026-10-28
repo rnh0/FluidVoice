@@ -4,10 +4,11 @@ name: Release
 # PRIVATE_AI_PROVIDER unset), signs it with one stable identity, attests provenance and,
 # for a v* tag, publishes a GitHub Release. See PRIVACY.md and docs/fork-release.md.
 
+# Tag pushes only: signing secrets live in the `release` environment, which admits only v* tags
+# and waits for the owner's approval. See docs/fork-release.md.
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,6 +28,7 @@ jobs:
     name: Build, sign and attest
     runs-on: macos-26
     timeout-minutes: 60
+    environment: release
     permissions:
       contents: write      # create the GitHub Release
       id-token: write      # provenance attestation (Sigstore)
@@ -48,46 +50,6 @@ jobs:
 
       - name: Fork policy tests
         run: sh Tests/run_fork_build_policy_tests.sh
-
-      - name: Import signing identity
-        id: signing
-        env:
-          P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
-          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$P12_BASE64" || -z "$IDENTITY" ]]; then
-            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-              echo "::error::Tagged releases need MACOS_SIGNING_P12_BASE64, MACOS_SIGNING_P12_PASSWORD and MACOS_SIGNING_IDENTITY (see docs/fork-release.md)."
-              exit 1
-            fi
-            echo "::warning::No signing secrets; building ad-hoc. macOS will ask for Microphone and Accessibility again after installing it."
-            echo "identity=-" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
-          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          rm -f "$RUNNER_TEMP/signing.p12"
-          # A self-signed certificate must be trusted for code signing before codesign accepts it.
-          CERT_PEM="$RUNNER_TEMP/signing-cert.pem"
-          security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
-          SUBJECT="$(openssl x509 -in "$CERT_PEM" -noout -subject | sed 's/^subject= *//')"
-          ISSUER="$(openssl x509 -in "$CERT_PEM" -noout -issuer | sed 's/^issuer= *//')"
-          if [[ "$SUBJECT" == "$ISSUER" ]]; then
-            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$CERT_PEM"
-          fi
-          openssl x509 -in "$CERT_PEM" -noout -subject -fingerprint -sha256
-          # Self-signed certificates are not "valid" for policy checks, so list all identities.
-          security find-identity -p codesigning "$KEYCHAIN"
-          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
 
       - name: Archive (Release configuration)
         env:
@@ -117,6 +79,43 @@ jobs:
           if grep -qE -- "-D ?PRIVATE_AI_PROVIDER( |$)" build/archive.log; then
             echo "::error::PRIVATE_AI_PROVIDER must not be set"; exit 1
           fi
+
+      # Imported only after the archive step (which ad-hoc signs), so dependency build code never
+      # runs while the signing keychain is unlocked.
+      - name: Import signing identity
+        id: signing
+        env:
+          P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$P12_BASE64" || -z "$IDENTITY" ]]; then
+            echo "::error::Releases need MACOS_SIGNING_P12_BASE64, MACOS_SIGNING_P12_PASSWORD and MACOS_SIGNING_IDENTITY in the release environment (see docs/fork-release.md)."
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+          # A self-signed certificate must be trusted for code signing before codesign accepts it.
+          CERT_PEM="$RUNNER_TEMP/signing-cert.pem"
+          security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
+          SUBJECT="$(openssl x509 -in "$CERT_PEM" -noout -subject | sed 's/^subject= *//')"
+          ISSUER="$(openssl x509 -in "$CERT_PEM" -noout -issuer | sed 's/^issuer= *//')"
+          if [[ "$SUBJECT" == "$ISSUER" ]]; then
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$CERT_PEM"
+          fi
+          openssl x509 -in "$CERT_PEM" -noout -subject -fingerprint -sha256
+          # Self-signed certificates are not "valid" for policy checks, so list all identities.
+          security find-identity -p codesigning "$KEYCHAIN"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
 
       - name: Sign and package
         id: package

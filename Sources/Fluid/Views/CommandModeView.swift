@@ -423,7 +423,7 @@ struct CommandModeView: View {
     private var approvalMenu: some View {
         Menu {
             Picker("Command approval", selection: self.$settings.commandModeConfirmBeforeExecute) {
-                Text("Ask before risky commands").tag(true)
+                Text("Ask before every command").tag(true)
                 Text("Run without asking").tag(false)
             }
             .pickerStyle(.inline)
@@ -432,8 +432,8 @@ struct CommandModeView: View {
         }
         .fluidDropdownStyle(appearance: .inline, tone: self.settings.commandModeConfirmBeforeExecute ? self.theme.palette.secondaryText : self.theme.palette.warning)
         .accessibilityLabel("Command approval")
-        .accessibilityValue(self.settings.commandModeConfirmBeforeExecute ? "Ask before risky commands" : "Run without asking")
-        .help("Choose whether potentially destructive commands require your approval")
+        .accessibilityValue(self.settings.commandModeConfirmBeforeExecute ? "Ask before every command" : "Run without asking")
+        .help("Choose whether every command needs your approval before it runs")
     }
 
     private var composerActions: some View {

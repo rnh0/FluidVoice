@@ -17,6 +17,11 @@ traffic. The runtime check (step 9 below) is still to do.
 | History retention | `Persistence/SettingsStore+HistoryPrivacy.swift`, `Services/TranscriptionHistoryRetentionService.swift`, Settings → Dictation → "Keep History For" | 1 / 7 / 30 / 90 / 365 days or forever; **default 30 days**. Unstarred dictations and their saved audio are deleted after loading, after each change (new dictation, backup restore), when the setting changes, and hourly. Starred entries are kept. |
 | Window titles off | Same files; Settings → "Save Window Titles" | New history entries store an empty window title unless you turn this on. Existing entries keep theirs until they expire or you clear history. |
 | No prompt traces in logs | `Services/RewriteModeService.swift` (`logPromptTrace`) | With `FLUID_LOCAL_ONLY`, Edit-mode prompt tracing (selected text, prompts, answers) is never written, whatever `RewriteModeDiagnosticsEnabled` / `FLUID_PROMPT_TRACE` say. |
+| No compact-model feed | `Services/CompactSpeechModelReleaseCatalog.swift` (`usesFeed`) | With `FLUID_LOCAL_ONLY`, the signed feed at `models.fluidvoice.app` is never fetched and a cached copy is ignored. Fluid Speech Mini/Pico/Pro download only the archives whose SHA-256 is pinned in `ParakeetSpeechModelCatalog.swift`; new versions arrive with upstream merges. Upstream fetched the feed at every launch and let it switch archives. |
+| Apple Speech on-device only | `Services/AppleSpeechProvider.swift` | With `FLUID_LOCAL_ONLY`, the legacy Apple Speech engine sets `requiresOnDeviceRecognition` and refuses languages without on-device support. Upstream allowed macOS to send audio to Apple's servers. |
+| Command Mode asks before every command | `Services/CommandModeService.swift` (`processNextTurn`), `Views/CommandModeView.swift` | "Ask first" (the default) now shows the review card for every model-proposed shell command. Upstream only asked when a substring denylist matched, so commands like `find … -delete`, `curl … \| zsh` or `osascript` ran unasked. A restored backup can turn approval on, never off. Security audit lead 1. |
+| Provider endpoint binding on backup restore | `Persistence/SettingsStore.swift` (`sanitizedRestoredProviders`, `restore`), `Persistence/SettingsStore+CommandMode.swift`, `Services/CommandModeService.swift` | Imported providers are trimmed and de-duplicated by canonical key, and Command Mode sends requests to the same endpoint its verification check uses. Previously a crafted backup could keep Command Mode "verified" while sending the Keychain API key to another URL. Security audit lead 2. |
+| Model download path containment | `Networking/ModelDownloader.swift` (`containedDestination`) | File paths from the Hugging Face tree listing must be plain relative paths inside the requested item and must stay under the model directory before anything is deleted, created or moved. Security audit lead 4. The FluidAudio dependency's own downloader has the same pattern and is not fixed (needs a FluidAudio change). |
 | CI | `.github/workflows/`, `scripts/fork-sign-and-package.sh` | See `docs/fork-release.md`. The build fails if any privacy flag is missing from the compiler invocations or if `PRIVATE_AI_PROVIDER` is set. |
 
 `FLUID_NO_UPDATER` and `FLUID_LOCAL_ONLY` are not set in Debug, which is the configuration the test suite runs in:
@@ -37,13 +42,14 @@ confidential compute.
 | 3 | `altic.dev/api/fluid/examples` | Raw and processed transcript, model name, your comment | Only when you press "report" on a history item | User action | **Blocked** (`FLUID_LOCAL_ONLY`) |
 | 4 | `altic.dev/api/fluid/feedback` | Email, message, app/macOS version | Only when you submit the feedback form | User action | **Blocked** |
 | 5 | Configured LLM provider base URL (`/chat/completions`, `/responses`, `/messages`, `/models`) | Dictation cleanup: transcript + system prompt. Edit mode: **selected text** (AX). Command mode: spoken command, chat history, tool output. Meeting summaries: transcript. `/v1/postprocess`: request text. | When AI processing is enabled and a provider is selected | Provider settings | **Loopback only** |
-| 6 | `models.fluidvoice.app/feed/v1/speech-models.json` | IP, `User-Agent: FluidVoice/<version>` | At launch and before Fluid compact model use | None | Kept. Signed manifest (`SpeechModelFeed.verified`), metadata only, no user data. |
-| 7 | `models.fluidvoice.app/parakeet/fluid-{mini,pico,pro}/…tar` | IP | When installing a Fluid compact model | User action | Kept. SHA-256 verified against the signed manifest. |
+| 6 | `models.fluidvoice.app/feed/v1/speech-models.json` | IP, `User-Agent: FluidVoice/<version>` | At launch and before Fluid compact model use | None | **Removed** in local-only builds (`CompactSpeechModelReleaseCatalog.usesFeed`); pinned hashes are used instead. |
+| 7 | `models.fluidvoice.app/parakeet/fluid-{mini,pico,pro}/…tar` | IP | When installing a Fluid compact model | User action | Kept. SHA-256 pinned in `ParakeetSpeechModelCatalog.swift`. |
 | 8 | `huggingface.co/<repo>/resolve/main/…` via FluidAudio `DownloadUtils` (Parakeet v2/v3, VAD, EOU, diarizer, Qwen3, …) | IP | When a model is first selected/downloaded | User action | Kept, **not pinned** (always `main`). Needs a FluidAudio change to pin. `REGISTRY_URL`/`MODEL_REGISTRY_URL` env vars can redirect it to a mirror. |
 | 9 | `huggingface.co/api/models/<repo>/tree/main`, `…/resolve/main` via `Networking/ModelDownloader.swift` (Nemotron, Cohere CoreML, meeting models) | IP | Model download | User action | Kept, revision `main` |
 | 10 | `huggingface.co/handy-computer/<model>-gguf/resolve/main/<model>-Q8_0.gguf` (`WhisperProvider.swift:89`) | IP | Whisper model download | User action | Kept, revision `main` |
 | 11 | Browser links (GitHub, docs, provider key pages) | Opened in your browser | On click | User action | Kept |
 | 12 | Local API on `127.0.0.1:47733` (inbound) | — | Only if `defaults write com.FluidApp.app LocalAPIEnabled -bool true` | Off by default; no UI toggle | Hardened (see below) |
+| 13 | Apple speech servers via `SFSpeechRecognizer` (`AppleSpeechProvider.swift`) | **Audio** | Only with the legacy "Apple Speech" engine selected | Engine choice | **Blocked**: on-device only with `FLUID_LOCAL_ONLY` |
 
 Not found: `WKWebView`, crash reporters, third-party analytics SDKs, raw sockets. Fluid-1 / Private AI is only compiled
 with `PRIVATE_AI_PROVIDER` (`Services/PrivateAIProvider.swift:386`), which is set nowhere in this repo; the release
@@ -128,6 +134,23 @@ curl -s -H "Authorization: Bearer $(cat ~/Library/Application\ Support/com.Fluid
 
 Any process running as your user can read the token file. The token keeps out browsers and other users,
 not your own processes. Dictionary changes apply live (`parakeetVocabularyDidChange` → `ASRService`).
+
+## Command Mode (future work)
+
+Command Mode is off unless you use it: its hotkey is disabled by default, and it refuses to run until a chat provider is
+verified (a successful test request to that endpoint, stored as a SHA-256 fingerprint of base URL and API key). "Verified"
+means the endpoint answered; it says nothing about whether the model is trustworthy.
+
+In this fork every proposed command needs approval. That is deliberately strict. If Command Mode turns out to be useful,
+possible improvements, in order of safety:
+
+1. An allowlist of read-only commands (`ls`, `pwd`, `cat` within the home folder) that may run unasked, parsed as argv
+   rather than matched as strings.
+2. Run commands in a sandbox (`sandbox-exec` profile or a separate low-privilege user) with no network by default.
+3. Treat command output as untrusted: cap its size, and require approval for any command proposed after output from
+   files or the network entered the conversation.
+
+Command Mode passes the app's full environment to `/bin/zsh -c`, and the shell is not covered by the egress policy.
 
 ## Recommended: block the app in Little Snitch
 

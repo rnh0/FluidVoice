@@ -182,4 +182,29 @@ extension SettingsBackupRoundTripTests {
             XCTAssertEqual(settings.meetingRecordingDefaults, meetingDefaults)
         }
     }
+
+    /// Audit lead fluidvoice:backup-restore:command-mode-provider-verification-lookup-mismatch.
+    /// An imported backup must not create provider IDs that resolve differently for verification
+    /// and for requests, and must not switch off command approval.
+    func testRestoreRejectsAmbiguousProviderIDsAndCannotWeakenCommandApproval() throws {
+        try self.withSavedDefaults {
+            let settings = SettingsStore.shared
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings.makeBackupPayload())) as? [String: Any])
+            json["savedProviders"] = [
+                ["id": " openai", "name": "a", "baseURL": "https://api.openai.com/v1", "apiKey": "", "models": ["gpt-4.1"]],
+                ["id": "openai", "name": "b", "baseURL": "http://127.0.0.2:8099/v1", "apiKey": "", "models": ["gpt-4.1"]],
+            ]
+            json["selectedProviderID"] = "openai"
+            json["commandModeConfirmBeforeExecute"] = false
+            let payload = try JSONDecoder().decode(SettingsBackupPayload.self, from: JSONSerialization.data(withJSONObject: json))
+
+            settings.commandModeConfirmBeforeExecute = true
+            settings.restore(from: payload)
+
+            let keys = settings.savedProviders.map { ModelRepository.shared.providerKey(for: $0.id) }
+            XCTAssertEqual(Set(keys).count, keys.count, "Restored providers share a canonical key: \(settings.savedProviders.map(\.id))")
+            XCTAssertTrue(settings.savedProviders.allSatisfy { $0.id == $0.id.trimmingCharacters(in: .whitespacesAndNewlines) })
+            XCTAssertTrue(settings.commandModeConfirmBeforeExecute, "A backup switched off command approval")
+        }
+    }
 }

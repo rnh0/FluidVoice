@@ -109,10 +109,10 @@ final class HuggingFaceModelDownloader {
                 let files = try await listFilesRecursively(relativePath: item.path)
                 for entry in files {
                     let rel = entry.path
+                    let dest = try Self.containedDestination(for: rel, under: targetRoot, itemPath: item.path)
                     if let size = entry.size, size >= 0 {
                         listedSizeByPath[rel] = size
                     }
-                    let dest = targetRoot.appendingPathComponent(rel)
                     if self.needsDownload(relativePath: rel, at: dest, expectedBytes: entry.size) {
                         pendingFiles.append(rel)
                     }
@@ -238,6 +238,27 @@ final class HuggingFaceModelDownloader {
     /// stuck forever, because `downloadFile` (and its validator) only runs for pending files.
     /// A present markup file is deleted here so a clean copy is fetched; on a read error the
     /// file is left in place and treated as valid, so we never delete on uncertainty.
+    /// Tree-listing paths come from the network. Accept only plain relative paths inside the
+    /// requested item, and only destinations that stay under `root`, before any file is
+    /// deleted, created or moved.
+    static func containedDestination(for relativePath: String, under root: URL, itemPath: String) throws -> URL {
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        let itemPrefix = itemPath.hasSuffix("/") ? itemPath : itemPath + "/"
+        let isPlainRelative = !relativePath.hasPrefix("/")
+            && relativePath.hasPrefix(itemPrefix)
+            && !components.contains { $0.isEmpty || $0 == "." || $0 == ".." || $0.contains("\0") }
+        let base = root.standardizedFileURL.path
+        let destination = root.appendingPathComponent(relativePath).standardizedFileURL
+        guard isPlainRelative, destination.path.hasPrefix(base.hasSuffix("/") ? base : base + "/") else {
+            throw NSError(
+                domain: "HF",
+                code: -5,
+                userInfo: [NSLocalizedDescriptionKey: "Rejected unsafe model file path from the download listing: \(relativePath)"]
+            )
+        }
+        return destination
+    }
+
     private func needsDownload(relativePath: String, at destination: URL, expectedBytes: Int64? = nil) -> Bool {
         guard FileManager.default.fileExists(atPath: destination.path) else {
             return true
@@ -276,7 +297,7 @@ final class HuggingFaceModelDownloader {
         let files = try await listFilesRecursively(relativePath: relativePath)
         for entry in files {
             let rel = entry.path
-            let dest = destination.deletingLastPathComponent().appendingPathComponent(rel)
+            let dest = try Self.containedDestination(for: rel, under: destination.deletingLastPathComponent(), itemPath: relativePath)
             try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             try await self.downloadFile(relativePath: rel, to: dest)
         }

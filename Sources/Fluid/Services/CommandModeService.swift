@@ -570,8 +570,10 @@ final class CommandModeService: ObservableObject {
                     NotchContentState.shared.addCommandMessage(role: .status, content: statusText)
                 }
 
-                // Check if we need confirmation for destructive commands
-                if SettingsStore.shared.commandModeConfirmBeforeExecute, self.isDestructiveCommand(tc.command) {
+                // Fork policy: "Ask first" approves every model-proposed command. A denylist cannot
+                // classify shell commands safely (e.g. `find -delete`, `curl … | zsh`), and command
+                // output fed back to the model can steer later turns. See PRIVACY.md (Command Mode).
+                if SettingsStore.shared.commandModeConfirmBeforeExecute {
                     self.pendingCommand = PendingCommand(
                         id: tc.id,
                         command: tc.command,
@@ -694,48 +696,6 @@ final class CommandModeService: ObservableObject {
         }
     }
 
-    private func isDestructiveCommand(_ command: String) -> Bool {
-        let cmd = command.lowercased()
-
-        // Commands that start with these are destructive
-        let destructivePrefixes = [
-            "rm ", "rm\t", "rmdir ", "rm -", // delete
-            "mv ", "mv\t", // move/rename
-            "sudo ", // elevated privileges
-            "kill ", "pkill ", "killall ", // terminate processes
-            "chmod ", "chown ", "chgrp ", // change permissions/ownership
-            "dd ", // disk operations
-            "mkfs", "format", // filesystem formatting
-            "> ", // overwrite file
-            "truncate ", // truncate file
-            "shred ", // secure delete
-        ]
-
-        // Check if command starts with any destructive prefix
-        if destructivePrefixes.contains(where: { cmd.hasPrefix($0) }) {
-            return true
-        }
-
-        // Check for destructive patterns anywhere in piped commands
-        let destructivePatterns = [
-            "| rm ", "| sudo ", "| dd ",
-            "; rm ", "; sudo ",
-            "&& rm ", "&& sudo ",
-            "xargs rm", "xargs -I",
-        ]
-
-        if destructivePatterns.contains(where: { cmd.contains($0) }) {
-            return true
-        }
-
-        // rm with flags like -rf, -r, -f anywhere
-        if cmd.contains("rm -") {
-            return true
-        }
-
-        return false
-    }
-
     private func executeCommand(_ command: String, workingDirectory: String?, callId: String, purpose: String? = nil, isOutputValid: @escaping @MainActor () -> Bool = { true }) async {
         guard isOutputValid() else { return }
         self.currentStep = .executing(command)
@@ -835,14 +795,9 @@ final class CommandModeService: ObservableObject {
         let model = settings.effectiveCommandModeSelectedModel
         let apiKey = settings.getAPIKey(for: providerID) ?? ""
 
-        let baseURL: String
-        if let provider = settings.savedProviders.first(where: { $0.id == providerID }) {
-            baseURL = provider.baseURL
-        } else if ModelRepository.shared.isBuiltIn(providerID) {
-            baseURL = ModelRepository.shared.defaultBaseURL(for: providerID)
-        } else {
-            baseURL = ""
-        }
+        // Resolve the endpoint exactly as the verification gate does, so the verified
+        // fingerprint always describes the URL that receives the API key.
+        let baseURL = settings.commandModeProviderBaseURL(for: providerID)
 
         // Build conversation with agentic system prompt
         let systemPrompt = """

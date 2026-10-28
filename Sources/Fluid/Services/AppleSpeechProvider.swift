@@ -78,10 +78,15 @@ final class AppleSpeechProvider: TranscriptionProvider {
             throw NSError(domain: "AppleSpeechProvider", code: 6, userInfo: [NSLocalizedDescriptionKey: "SFSpeechRecognizer is currently unavailable"])
         }
 
+        // Fork policy: with FLUID_LOCAL_ONLY, audio never leaves the Mac, so server recognition is not allowed.
+        if ForkBuildPolicy.localOnlyEgress, !recognizer.supportsOnDeviceRecognition {
+            throw NSError(domain: "AppleSpeechProvider", code: 7, userInfo: [NSLocalizedDescriptionKey: "On-device Apple Speech is not available for this language. This build does not send audio to Apple's servers."])
+        }
+
         // 3. Create Request
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = false // We want the final result for this chunk
-        request.requiresOnDeviceRecognition = false // Allow macOS to use the best available Apple speech path.
+        request.requiresOnDeviceRecognition = ForkBuildPolicy.localOnlyEgress // Never send audio to Apple in local-only builds.
         request.append(buffer)
         request.endAudio() // Signal that this buffer is the complete utterance for this request
 

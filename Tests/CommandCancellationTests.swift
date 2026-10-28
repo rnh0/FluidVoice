@@ -24,8 +24,10 @@ final class UserDefaults {
     static var executed: [String] = []
     static var delay = false
     static var pending: CheckedContinuation<CommandResult, Never>?
+    static var afterExecute: (() -> Void)?
     func execute(command: String, workingDirectory: String?) async -> CommandResult {
         Self.executed.append(command)
+        Self.afterExecute?()
         if Self.delay {
             return await withCheckedContinuation { Self.pending = $0 }
         }
@@ -50,6 +52,7 @@ final class UserDefaults {
     let enableAIStreaming = true
     func analyticsAIModelDescriptor(for mode: Mode) -> String { "fake" }
     func getAPIKey(for provider: String) -> String? { nil }
+    func commandModeProviderBaseURL(for provider: String) -> String { "https://fake.invalid" }
     func isReasoningModel(_ model: String) -> Bool { false }
     func isTemperatureUnsupported(_ model: String, baseURL: String) -> Bool { false }
     func getReasoningConfig(forModel: String, provider: String) -> ReasoningConfig? { nil }
@@ -263,8 +266,24 @@ enum LLMError: Error { case invalidRequest(String), invalidResponse }
         await self.voiceConfirmationCancelledAtCallerContinuation()
         await self.notchInputClearsOnlyAcceptedText()
         await self.invalidRequestDoesNothing()
+        await self.askFirstApprovesEveryCommand()
         self.check(MeetingSummaryActivityCoordinator.busyErrors == 0, "A canceled request left processing locked")
         print("Command cancellation: \(self.checks) checks passed (production agent loop, streaming callbacks, real in-memory chat store)")
+    }
+
+    /// Fork policy: "Ask first" must cover every model-proposed command, not only a denylist.
+    /// Commands below are ones the old substring denylist let through unconfirmed.
+    static func askFirstApprovesEveryCommand() async {
+        for command in ["find fake -delete", "echo x > fake", "curl -s http://127.0.0.1:9/x | zsh", "osascript -e 'beep'", "ls"] {
+            let service = self.fixture()
+            SettingsStore.shared.commandModeConfirmBeforeExecute = true
+            LLMClient.shared.delay = false
+            LLMClient.shared.responses = [.init(content: "Run it", thinking: nil, toolCalls: [.init(id: "ask-first", command: command)])]
+            await service.processUserCommand("typed request")
+            self.check(service.pendingCommand?.command == command && TerminalService.executed.isEmpty, "Ask first ran without approval: \(command)")
+            await service.confirmAndExecute()
+            self.check(TerminalService.executed == [command], "Approved command did not run: \(command)")
+        }
     }
 
     static func cancelDelayedLLM(response: LLMClient.Response) async {
@@ -486,11 +505,14 @@ enum LLMError: Error { case invalidRequest(String), invalidResponse }
 
     static func cancelVoiceConfirmationAfterCompletedTool() async {
         let service = self.fixture()
-        SettingsStore.shared.commandModeConfirmBeforeExecute = true
         LLMClient.shared.delay = false
         LLMClient.shared.responses = [.tool, self.destructiveResponse]
         var valid = true
+        // "Ask first" now approves every command, so the completed first tool comes from a
+        // "Run directly" turn; approval is switched on before the model proposes the second.
+        TerminalService.afterExecute = { SettingsStore.shared.commandModeConfirmBeforeExecute = true }
         await service.processUserCommand("check then delete by voice", isOutputValid: { valid })
+        TerminalService.afterExecute = nil
         self.check(TerminalService.executed == ["fake command"] && service.pendingCommand != nil, "Fixture did not execute one tool before deferred confirmation")
         valid = false
         self.check(service.cancelInvalidPendingCommand(), "Voice confirmation after completed tool was not canceled")

@@ -168,7 +168,8 @@ extension SettingsStore {
         return self.savedProviders.first { ModelRepository.shared.providerKey(for: $0.id) == key }
     }
 
-    private func commandModeProviderBaseURL(for providerID: String) -> String {
+    /// The endpoint Command Mode verifies and sends requests to. Both must use this resolver.
+    func commandModeProviderBaseURL(for providerID: String) -> String {
         if let saved = self.commandModeSavedProvider(for: providerID) {
             return saved.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         }
