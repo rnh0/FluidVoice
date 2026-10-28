@@ -106,7 +106,6 @@ final class WhisperLanguageSelectionTests: XCTestCase {
     }
 }
 
-
 /// Fork feature: the secondary dictation shortcut brings its own speech model.
 final class ShortcutSpeechModelTests: XCTestCase {
     private typealias Model = SettingsStore.SpeechModel
