@@ -2263,6 +2263,8 @@ struct ContentView: View {
                 commandModeShortcutEnabled: self.$isCommandModeShortcutEnabled,
                 rewriteShortcutEnabled: self.$isRewriteModeShortcutEnabled,
                 pasteLastTranscriptionShortcutEnabled: self.$isPasteLastTranscriptionShortcutEnabled,
+                secondaryDictationShortcut: self.$promptModeHotkeyShortcut,
+                secondaryDictationShortcutEnabled: self.$isPromptModeShortcutEnabled,
                 hotkeyManagerInitialized: self.$hotkeyManagerInitialized,
                 hotkeyMode: self.$hotkeyMode,
                 enableStreamingPreview: self.$enableStreamingPreview,
@@ -4770,10 +4772,14 @@ struct ContentView: View {
         }
 
         let captureOverlayLifecycleID = self.overlayLifecycleID
+        let switchesSpeechModel = !self.isRecordingForCommand && !self.isRecordingForRewrite
         let captureTask = Task {
             guard !Task.isCancelled else {
                 self.clearCancelledCaptureStart(lifecycleID: captureOverlayLifecycleID, mode: .dictate)
                 return
+            }
+            if switchesSpeechModel {
+                await self.applyShortcutSpeechModel(for: .primary)
             }
             let startOutcome = await self.asr.start(onCaptureStarted: {
                 if shouldPlayStartSound {
@@ -5526,7 +5532,8 @@ extension ContentView {
     private func beginDictationRecording(
         for slot: SettingsStore.DictationShortcutSlot,
         mode: ActiveRecordingMode,
-        startMethod: AnalyticsOnboardingTryoutStartMethod = .hotkey
+        startMethod: AnalyticsOnboardingTryoutStartMethod = .hotkey,
+        switchesSpeechModel: Bool = true
     ) -> Task<Void, Never>? {
         guard self.canBeginDictationRecording() else { return nil }
         let switchesOwnedCapture = self.canSwitchActiveDictationCaptureMode
@@ -5575,6 +5582,9 @@ extension ContentView {
                 self.clearCancelledCaptureStart(lifecycleID: captureOverlayLifecycleID, mode: mode)
                 return
             }
+            if switchesSpeechModel {
+                await self.applyShortcutSpeechModel(for: slot)
+            }
             let asrStartStartedAt = ProcessInfo.processInfo.systemUptime
             DebugLogger.shared.benchmark("APP_BENCH", message: "asr_start_call", source: "AppBenchmark")
             let startOutcome = await self.asr.start(onCaptureStarted: {
@@ -5612,7 +5622,35 @@ extension ContentView {
         guard self.canBeginDictationRecording() else { return nil }
         let settings = SettingsStore.shared
         settings.setDictationPromptSelection(selection, for: .secondary)
-        return self.beginDictationRecording(for: .secondary, mode: mode)
+        // Prompt shortcuts share the secondary slot but choose a cleanup style, not a speech model.
+        return self.beginDictationRecording(for: .secondary, mode: mode, switchesSpeechModel: false)
+    }
+
+    /// Fork: each dictation shortcut can bring its own speech model (SettingsStore+ShortcutSpeechModel).
+    /// Runs before `asr.start()` and waits for the switch, because the reset holds the engine.
+    private func applyShortcutSpeechModel(for slot: SettingsStore.DictationShortcutSlot) async {
+        let settings = SettingsStore.shared
+        let decision = SettingsStore.shortcutSpeechModelSwitch(
+            for: slot,
+            current: settings.selectedSpeechModel,
+            secondary: settings.secondaryDictationSpeechModel,
+            restore: settings.primarySpeechModelRestore
+        )
+        guard let target = decision.activate else {
+            settings.primarySpeechModelRestore = decision.restore
+            return
+        }
+        guard SpeechModelInstallationSnapshot.shared.isInstalled(modelID: target.id) else {
+            DebugLogger.shared.warning(
+                "Shortcut model \(target.displayName) is not installed; keeping \(settings.selectedSpeechModel.displayName)",
+                source: "ContentView"
+            )
+            return
+        }
+        if await self.asr.switchSpeechModelForShortcut(to: target) {
+            settings.primarySpeechModelRestore = decision.restore
+            DebugLogger.shared.info("Dictation shortcut \(slot.rawValue) switched to \(target.displayName)", source: "ContentView")
+        }
     }
 
     private func benchmarkLoadAverage() -> String {

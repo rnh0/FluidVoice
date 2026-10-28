@@ -1495,11 +1495,13 @@ final class ASRService: ObservableObject {
     }
 
     /// Call this when the transcription provider setting changes to reset state
-    func resetTranscriptionProvider() {
+    /// Returns the task that finishes the reset, or nil when the reset was deferred.
+    @discardableResult
+    func resetTranscriptionProvider() -> Task<Void, Never>? {
         self.meetingModelResidency.vetoRestoration(owner: "speech")
         guard !self.recordingBufferHandoffGate.isRecovering else {
             self.resetProviderAfterStreamingRecovery = true
-            return
+            return nil
         }
 
         guard self.activeActivityLease == nil else {
@@ -1508,12 +1510,12 @@ final class ASRService: ObservableObject {
                 "ASRService: Deferring provider reset until \(self.activeExclusiveActivity?.displayName ?? "active work") finishes",
                 source: "ASRService"
             )
-            return
+            return nil
         }
 
         guard let resetLease = try? self.acquireExclusiveActivity(.modelMaintenance) else {
             self.providerResetPending = true
-            return
+            return nil
         }
         let newModel = SettingsStore.shared.selectedSpeechModel
         DebugLogger.shared.info("ASRService: Switching to '\(newModel.displayName)', resetting provider state...", source: "ASRService")
@@ -1563,7 +1565,7 @@ final class ASRService: ObservableObject {
         // CRITICAL FIX: Check if the NEW model's files exist on disk
         // This prevents UI from showing "Download" when model is already downloaded
         // Use Task for async check to support providers like AppleSpeechAnalyzerProvider
-        Task { [weak self] in
+        return Task { [weak self] in
             guard let self = self else { return }
             defer { self.releaseExclusiveActivity(resetLease) }
             _ = await retiringTask?.result
@@ -1574,6 +1576,22 @@ final class ASRService: ObservableObject {
             }
             DebugLogger.shared.info("ASRService: Provider reset complete, will initialize '\(newModel.displayName)' on next use", source: "ASRService")
         }
+    }
+
+    /// Fork: switches the speech model for a dictation shortcut and waits for the provider reset, which
+    /// holds the engine, so that `start()` can run right after. Changes nothing while other work holds it.
+    func switchSpeechModelForShortcut(to model: SettingsStore.SpeechModel) async -> Bool {
+        guard SettingsStore.shared.selectedSpeechModel != model else { return true }
+        guard self.activeActivityLease == nil, !self.recordingBufferHandoffGate.isRecovering, !self.isRunningOrStarting else {
+            DebugLogger.shared.info(
+                "ASRService: Not switching to '\(model.displayName)' for shortcut, engine busy",
+                source: "ASRService"
+            )
+            return false
+        }
+        SettingsStore.shared.selectedSpeechModel = model
+        await self.resetTranscriptionProvider()?.value
+        return true
     }
 
     // CRITICAL FIX (launch-time crash mitigation):

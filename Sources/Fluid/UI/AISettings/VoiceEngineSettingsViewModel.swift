@@ -127,6 +127,8 @@ final class VoiceEngineSettingsViewModel: ObservableObject {
 
     func activateSpeechModel(_ model: SettingsStore.SpeechModel) {
         guard !self.areSpeechModelActionsBlocked else { return }
+        // A model chosen here becomes the primary model; the primary shortcut must not switch away from it.
+        self.settings.primarySpeechModelRestore = nil
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             self.settings.selectedSpeechModel = model
             self.previewSpeechModel = model

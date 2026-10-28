@@ -49,6 +49,8 @@ struct SettingsView: View {
     @Binding var commandModeShortcutEnabled: Bool
     @Binding var rewriteShortcutEnabled: Bool
     @Binding var pasteLastTranscriptionShortcutEnabled: Bool
+    @Binding var secondaryDictationShortcut: HotkeyShortcut
+    @Binding var secondaryDictationShortcutEnabled: Bool
     @Binding var hotkeyManagerInitialized: Bool
     @Binding var hotkeyMode: HotkeyActivationMode
     @Binding var enableStreamingPreview: Bool
@@ -535,6 +537,8 @@ struct SettingsView: View {
                                                 .settingsSearchTarget(.primaryDictationShortcuts)
                                             self.shortcutGroupDivider
                                             self.smartDictationShortcutRow
+                                            self.shortcutGroupDivider
+                                            self.secondVoiceEngineShortcutRow
                                         }
                                         self.shortcutGroupDivider
                                         self.shortcutGroup {
@@ -2232,6 +2236,91 @@ private extension SettingsView {
             .fill(self.theme.palette.cardBorder)
             .frame(height: 1)
             .padding(.vertical, 2)
+    }
+
+    /// Fork: a second dictation shortcut with its own speech model (SettingsStore+ShortcutSpeechModel).
+    private var secondVoiceEngineShortcutRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            self.shortcutRow(
+                content: .init(
+                    icon: "globe",
+                    iconColor: .secondary,
+                    title: "Second voice engine",
+                    description: "Dictate with another speech model, for example for another language. The primary shortcut switches back."
+                ),
+                shortcut: self.secondaryDictationShortcut,
+                isRecording: self.isRecording(.secondaryDictation),
+                isAnyRecordingActive: self.isRecordingAnyShortcut,
+                recordingMessage: self.isRecording(.secondaryDictation) ? self.shortcutRecordingMessage : nil,
+                isEnabled: self.$secondaryDictationShortcutEnabled,
+                onChangePressed: {
+                    self.shortcutRecordingMessage = nil
+                    self.activeShortcutRecordingTarget = .secondaryDictation
+                }
+            )
+            self.secondaryDictationSpeechModelPicker
+            if self.settings.secondaryDictationSpeechModel?.provider == .openai {
+                self.secondaryWhisperLanguagePicker
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var secondaryDictationSpeechModelPicker: some View {
+        let installed = SettingsStore.SpeechModel.availableModels.filter {
+            SpeechModelInstallationSnapshot.shared.isInstalled(modelID: $0.id)
+        }
+        let title = self.settings.secondaryDictationSpeechModel?.humanReadableName ?? "Same as primary"
+        let selection = Binding<String>(
+            get: { self.settings.secondaryDictationSpeechModel?.rawValue ?? "" },
+            set: { self.settings.secondaryDictationSpeechModel = SettingsStore.SpeechModel(rawValue: $0) }
+        )
+        return HStack(spacing: 10) {
+            Text("Speech model")
+                .font(self.theme.typography.bodySmall)
+                .foregroundStyle(self.settingsSecondaryText)
+                .padding(.leading, 30)
+            FluidDropdown(title: title) {
+                Picker("Speech model", selection: selection) {
+                    Text("Same as primary").tag("")
+                    ForEach(installed, id: \.rawValue) { model in
+                        Text(model.humanReadableName).tag(model.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            .accessibilityLabel("Speech model")
+            .accessibilityValue(title)
+        }
+    }
+
+    /// Whisper's language is one app-wide setting; pinning it stops guesses on short recordings.
+    private var secondaryWhisperLanguagePicker: some View {
+        let languageCode = self.settings.selectedWhisperLanguageCode
+        let title = languageCode.flatMap { VoiceEngineLanguageCatalog.whisperLanguage(forCode: $0)?.displayName } ?? "Automatic"
+        let selection = Binding<String>(
+            get: { self.settings.selectedWhisperLanguageCode ?? "" },
+            set: { self.settings.selectedWhisperLanguageCode = $0.isEmpty ? nil : $0 }
+        )
+        return HStack(spacing: 10) {
+            Text("Whisper language")
+                .font(self.theme.typography.bodySmall)
+                .foregroundStyle(self.settingsSecondaryText)
+                .padding(.leading, 30)
+            FluidDropdown(title: title) {
+                Picker("Whisper language", selection: selection) {
+                    Text("Automatic").tag("")
+                    ForEach(VoiceEngineLanguageCatalog.whisperLanguages) { language in
+                        if let code = VoiceEngineLanguageCatalog.whisperLanguageCode(for: language.id) {
+                            Text(language.displayName).tag(code)
+                        }
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            .accessibilityLabel("Whisper language")
+            .accessibilityValue(title)
+        }
     }
 
     @ViewBuilder
