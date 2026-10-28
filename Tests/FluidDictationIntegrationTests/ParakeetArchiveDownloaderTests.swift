@@ -875,8 +875,8 @@ final nonisolated class ParakeetArchiveDownloaderTests: XCTestCase {
 final nonisolated class HuggingFaceTreePathContainmentTests: XCTestCase {
     final nonisolated class TreeListingStub: URLProtocol {
         nonisolated(unsafe) static var listing = Data()
-        override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "huggingface.co" }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override static func canInit(with request: URLRequest) -> Bool { request.url?.host == "huggingface.co" }
+        override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
             let isListing = self.request.url?.path.contains("/api/models/") == true
             guard let url = self.request.url,
@@ -916,4 +916,3 @@ final nonisolated class HuggingFaceTreePathContainmentTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: victim.appendingPathComponent("marker.txt").path), "Download listing deleted a file outside the target directory")
     }
 }
-
