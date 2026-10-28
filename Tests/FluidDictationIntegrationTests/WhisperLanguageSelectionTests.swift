@@ -105,3 +105,45 @@ final class WhisperLanguageSelectionTests: XCTestCase {
         XCTAssertEqual(languageCodes.count, Set(languageCodes).count)
     }
 }
+
+/// Fork feature: the secondary dictation shortcut brings its own speech model.
+final class ShortcutSpeechModelTests: XCTestCase {
+    private typealias Model = SettingsStore.SpeechModel
+
+    func testSecondaryShortcutSwitchesAndRemembersPrimary() {
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .secondary, current: .fluidParakeetPro, secondary: .whisperLargeTurbo, restore: nil)
+        XCTAssertEqual(decision.activate, Model.whisperLargeTurbo)
+        XCTAssertEqual(decision.restore, Model.fluidParakeetPro)
+    }
+
+    func testSecondaryShortcutKeepsModelWhenAlreadyActive() {
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .secondary, current: .whisperLargeTurbo, secondary: .whisperLargeTurbo, restore: .fluidParakeetPro)
+        XCTAssertNil(decision.activate)
+        XCTAssertEqual(decision.restore, Model.fluidParakeetPro)
+    }
+
+    func testSecondaryShortcutWithoutModelChangesNothing() {
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .secondary, current: .fluidParakeetPro, secondary: nil, restore: nil)
+        XCTAssertNil(decision.activate)
+        XCTAssertNil(decision.restore)
+    }
+
+    func testPrimaryShortcutSwitchesBack() {
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .primary, current: .whisperLargeTurbo, secondary: .whisperLargeTurbo, restore: .fluidParakeetPro)
+        XCTAssertEqual(decision.activate, Model.fluidParakeetPro)
+        XCTAssertNil(decision.restore)
+    }
+
+    func testPrimaryShortcutKeepsModelChosenInSettings() {
+        // The user picked another model in Voice Engine after using the secondary shortcut.
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .primary, current: .parakeetTDTv2, secondary: .whisperLargeTurbo, restore: .fluidParakeetPro)
+        XCTAssertNil(decision.activate)
+        XCTAssertNil(decision.restore)
+    }
+
+    func testPrimaryShortcutWithoutPendingRestoreChangesNothing() {
+        let decision = SettingsStore.shortcutSpeechModelSwitch(for: .primary, current: .fluidParakeetPro, secondary: .whisperLargeTurbo, restore: nil)
+        XCTAssertNil(decision.activate)
+        XCTAssertNil(decision.restore)
+    }
+}
