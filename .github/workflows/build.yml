@@ -97,6 +97,9 @@ jobs:
     - name: Run fork build policy tests
       run: sh Tests/run_fork_build_policy_tests.sh
 
+    - name: Run Command Mode agent regressions
+      run: sh Tests/run_command_cancellation_tests.sh
+
     - name: Run standalone onboarding regressions
       run: sh Tests/run_onboarding_tests.sh
 

@@ -869,3 +869,51 @@ final nonisolated class ParakeetArchiveDownloaderTests: XCTestCase {
         }
     }
 }
+
+/// Audit lead fluidvoice:model-download:hf-tree-entry-path-not-contained.
+/// Paths from the Hugging Face tree listing must never reach files outside the target directory.
+final nonisolated class HuggingFaceTreePathContainmentTests: XCTestCase {
+    final nonisolated class TreeListingStub: URLProtocol {
+        nonisolated(unsafe) static var listing = Data()
+        override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "huggingface.co" }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() {
+            let isListing = self.request.url?.path.contains("/api/models/") == true
+            guard let url = self.request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: isListing ? 200 : 404, httpVersion: nil, headerFields: ["Content-Type": "application/json"])
+            else {
+                self.client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: isListing ? Self.listing : Data())
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+        override func stopLoading() {}
+    }
+
+    @MainActor
+    func testTreeListingCannotDeleteOrWriteOutsideTargetRoot() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("hf-containment-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let victim = root.appendingPathComponent("victim-dir")
+        try FileManager.default.createDirectory(at: victim, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: victim.appendingPathComponent("marker.txt"))
+
+        TreeListingStub.listing = Data(#"[{"type":"file","path":"encoder.mlpackage/../../victim-dir","size":1},{"type":"file","path":"/tmp/absolute-escape","size":1}]"#.utf8)
+        URLProtocol.registerClass(TreeListingStub.self)
+        defer { URLProtocol.unregisterClass(TreeListingStub.self) }
+
+        let downloader = HuggingFaceModelDownloader(
+            owner: "audit-fixture",
+            repo: "containment",
+            requiredItems: [.init(path: "encoder.mlpackage", isDirectory: true)]
+        )
+        do {
+            try await downloader.ensureModelsPresent(at: root.appendingPathComponent("models"))
+            XCTFail("A listing with escaping paths must be rejected")
+        } catch {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: victim.appendingPathComponent("marker.txt").path), "Download listing deleted a file outside the target directory")
+    }
+}
+

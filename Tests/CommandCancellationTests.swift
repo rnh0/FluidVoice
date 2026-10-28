@@ -263,8 +263,24 @@ enum LLMError: Error { case invalidRequest(String), invalidResponse }
         await self.voiceConfirmationCancelledAtCallerContinuation()
         await self.notchInputClearsOnlyAcceptedText()
         await self.invalidRequestDoesNothing()
+        await self.askFirstApprovesEveryCommand()
         self.check(MeetingSummaryActivityCoordinator.busyErrors == 0, "A canceled request left processing locked")
         print("Command cancellation: \(self.checks) checks passed (production agent loop, streaming callbacks, real in-memory chat store)")
+    }
+
+    /// Fork policy: "Ask first" must cover every model-proposed command, not only a denylist.
+    /// Commands below are ones the old substring denylist let through unconfirmed.
+    static func askFirstApprovesEveryCommand() async {
+        for command in ["find fake -delete", "echo x > fake", "curl -s http://127.0.0.1:9/x | zsh", "osascript -e 'beep'", "ls"] {
+            let service = self.fixture()
+            SettingsStore.shared.commandModeConfirmBeforeExecute = true
+            LLMClient.shared.delay = false
+            LLMClient.shared.responses = [.init(content: "Run it", thinking: nil, toolCalls: [.init(id: "ask-first", command: command)])]
+            await service.processUserCommand("typed request")
+            self.check(service.pendingCommand?.command == command && TerminalService.executed.isEmpty, "Ask first ran without approval: \(command)")
+            await service.confirmAndExecute()
+            self.check(TerminalService.executed == [command], "Approved command did not run: \(command)")
+        }
     }
 
     static func cancelDelayedLLM(response: LLMClient.Response) async {
