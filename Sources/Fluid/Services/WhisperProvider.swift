@@ -293,10 +293,15 @@ final class WhisperProvider: TranscriptionProvider {
             return 16.0
         }
 
-        let freePages = UInt64(vmStats.free_count)
-        let inactivePages = UInt64(vmStats.inactive_count)
-        let purgablePages = UInt64(vmStats.purgeable_count)
-        let availableBytes = (freePages + inactivePages + purgablePages) * UInt64(pageSize)
+        // Fork: count file cache as available, as Activity Monitor does. macOS keeps little memory free and
+        // reclaims cached file pages on demand, so free + inactive alone blocked Large Turbo on 16 GB Macs.
+        // Available = physical - (app memory + wired + compressed), app memory = anonymous - purgeable.
+        let anonymousPages = UInt64(vmStats.internal_page_count)
+        let appPages = anonymousPages - min(UInt64(vmStats.purgeable_count), anonymousPages)
+        let usedPages = appPages + UInt64(vmStats.wire_count) + UInt64(vmStats.compressor_page_count)
+        let physicalBytes = ProcessInfo.processInfo.physicalMemory
+        let usedBytes = usedPages * UInt64(pageSize)
+        let availableBytes = physicalBytes > usedBytes ? physicalBytes - usedBytes : 0
         return Double(availableBytes) / (1024 * 1024 * 1024)
     }
 
