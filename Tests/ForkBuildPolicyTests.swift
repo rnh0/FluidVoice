@@ -30,15 +30,11 @@ struct ForkBuildPolicyTests {
         precondition(LocalAPIAccessPolicy.rejection(for: request(["host": "evil.example:47733", "authorization": auth]), port: 47_733, token: token)?.status == 403, "DNS rebinding")
         precondition(LocalAPIAccessPolicy.rejection(for: request(["host": "127.0.0.1:1", "authorization": auth]), port: 47_733, token: token)?.status == 403)
         precondition(LocalAPIAccessPolicy.rejection(for: request(["authorization": auth]), port: 47_733, token: token)?.status == 403, "Host is required")
-        precondition(LocalAPIAccessPolicy.rejection(
-            for: request(["host": "127.0.0.1:47733", "authorization": auth, "origin": "https://evil.example"]),
-            port: 47_733, token: token
-        )?.status == 403, "Browser origin")
+        let browserRequest = request(["host": "127.0.0.1:47733", "authorization": auth, "origin": "https://evil.example"])
+        precondition(LocalAPIAccessPolicy.rejection(for: browserRequest, port: 47_733, token: token)?.status == 403, "Browser origin")
         precondition(LocalAPIAccessPolicy.rejection(for: request(["host": "127.0.0.1:47733"]), port: 47_733, token: token)?.status == 401)
-        precondition(LocalAPIAccessPolicy.rejection(
-            for: request(["host": "127.0.0.1:47733", "authorization": "Bearer " + String(repeating: "b", count: 64)]),
-            port: 47_733, token: token
-        )?.status == 401)
+        let wrongToken = request(["host": "127.0.0.1:47733", "authorization": "Bearer " + String(repeating: "b", count: 64)])
+        precondition(LocalAPIAccessPolicy.rejection(for: wrongToken, port: 47_733, token: token)?.status == 401)
         precondition(!LocalAPIAccessPolicy.constantTimeEquals("", ""), "Empty token never matches")
         print("ForkBuildPolicyTests passed")
     }
