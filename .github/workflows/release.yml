@@ -4,10 +4,11 @@ name: Release
 # PRIVATE_AI_PROVIDER unset), signs it with one stable identity, attests provenance and,
 # for a v* tag, publishes a GitHub Release. See PRIVACY.md and docs/fork-release.md.
 
+# Tag pushes only: signing secrets live in the `release` environment, which admits only v* tags
+# and waits for the owner's approval. See docs/fork-release.md.
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,6 +28,7 @@ jobs:
     name: Build, sign and attest
     runs-on: macos-26
     timeout-minutes: 60
+    environment: release
     permissions:
       contents: write      # create the GitHub Release
       id-token: write      # provenance attestation (Sigstore)
@@ -89,13 +91,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$P12_BASE64" || -z "$IDENTITY" ]]; then
-            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-              echo "::error::Tagged releases need MACOS_SIGNING_P12_BASE64, MACOS_SIGNING_P12_PASSWORD and MACOS_SIGNING_IDENTITY (see docs/fork-release.md)."
-              exit 1
-            fi
-            echo "::warning::No signing secrets; building ad-hoc. macOS will ask for Microphone and Accessibility again after installing it."
-            echo "identity=-" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Releases need MACOS_SIGNING_P12_BASE64, MACOS_SIGNING_P12_PASSWORD and MACOS_SIGNING_IDENTITY in the release environment (see docs/fork-release.md)."
+            exit 1
           fi
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"

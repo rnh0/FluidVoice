@@ -5,7 +5,7 @@ Builds run on GitHub-hosted macOS runners. Two workflows:
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `build.yml` | push / PR to `main` | SwiftLint, standalone tests (incl. `Tests/run_fork_build_policy_tests.sh`), `xcodebuild test` (Debug). Unsigned. |
-| `release.yml` | tag `v*`, or manual | Release archive with the fork's privacy switches, re-signs with a stable identity, zips, attests provenance, publishes a GitHub Release (tags only). |
+| `release.yml` | tag `v*` (after your approval) | Release archive with the fork's privacy switches, re-signs with a stable identity, zips, attests provenance, attaches to the GitHub Release. |
 
 Both use `-onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution`, so SwiftPM uses exactly
 `Fluid.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. All actions are pinned by commit SHA.
@@ -65,9 +65,17 @@ openssl pkcs12 -export -legacy -inkey key.pem -in cert.pem -name "FluidVoice For
 Export the certificate and private key from Keychain Access as `.p12`. Use the certificate's common name,
 e.g. `Apple Development: Name (TEAMID)`, as the identity.
 
-### Repository secrets
+### The `release` environment
 
-Settings → Secrets and variables → Actions → New repository secret:
+The signing secrets live in an environment, so only an approved run for a `v*` tag can read them.
+
+1. Settings → Environments → New environment → `release` → Configure environment.
+2. Tick "Required reviewers", add yourself. Leave "Prevent self-review" unticked (you are the only reviewer).
+   Save protection rules.
+3. "Deployment branches and tags" → "Selected branches and tags" → Add rule → Ref type **Tag**, pattern `v*`.
+4. "Environment secrets" → add the three secrets below.
+5. Delete any repository-level secrets with the same names (Settings → Secrets and variables → Actions), so no
+   other workflow can read them.
 
 | Secret | Value |
 |---|---|
@@ -78,7 +86,7 @@ Settings → Secrets and variables → Actions → New repository secret:
 Then delete `key.pem` and `signing.p12` locally, or keep them offline. Anyone with the key can sign
 an app that inherits your Microphone and Accessibility grants.
 
-Tagged releases fail without these secrets. Manual runs fall back to ad-hoc signing with a warning.
+Releases fail without these secrets; there is no ad-hoc fallback and no manual trigger.
 
 ## Releasing
 
@@ -90,7 +98,8 @@ git tag v1.6.13-fork.1 origin/main && git push origin v1.6.13-fork.1
 
 or on github.com: Releases → Draft a new release → choose a tag → type `v1.6.13-fork.1` → "Create new tag on
 publish", target `main` → Publish release. Creating the tag starts `release.yml`, which attaches the signed zip,
-its checksum and `build-info.txt` to that release (about 15 minutes).
+its checksum and `build-info.txt` to that release (about 15 minutes). The run first waits at "Waiting for review": open it, click Review deployments,
+tick `release`, then Approve and deploy.
 
 ## Verifying a download
 
