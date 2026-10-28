@@ -3792,6 +3792,17 @@ final class SettingsStore: ObservableObject {
         )
     }
 
+    /// Backups are untrusted input. Trim provider IDs and keep only the first provider per canonical
+    /// key, so verification and requests can never resolve different entries for one provider.
+    static func sanitizedRestoredProviders(_ providers: [SavedProvider]) -> [SavedProvider] {
+        var seen = Set<String>()
+        return providers.compactMap { provider in
+            let id = provider.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty, seen.insert(ModelRepository.shared.providerKey(for: id)).inserted else { return nil }
+            return SavedProvider(id: id, name: provider.name, baseURL: provider.baseURL, apiKey: provider.apiKey, models: provider.models)
+        }
+    }
+
     func restore(from payload: SettingsBackupPayload) {
         self.restore(from: payload, promptProfiles: self.dictationPromptProfiles, appPromptBindings: self.appPromptBindings)
     }
@@ -3801,7 +3812,7 @@ final class SettingsStore: ObservableObject {
         promptProfiles: [DictationPromptProfile],
         appPromptBindings: [AppPromptBinding]
     ) {
-        self.savedProviders = payload.savedProviders
+        self.savedProviders = Self.sanitizedRestoredProviders(payload.savedProviders)
         self.selectedProviderID = payload.selectedProviderID
         self.selectedModelByProvider = payload.selectedModelByProvider
         self.modelReasoningConfigs = payload.modelReasoningConfigs
@@ -3846,7 +3857,8 @@ final class SettingsStore: ObservableObject {
         self.commandModeShortcutEnabled = payload.commandModeShortcutEnabled
         self.commandModeSelectedModel = payload.commandModeSelectedModel
         self.commandModeSelectedProviderID = payload.commandModeSelectedProviderID
-        self.commandModeConfirmBeforeExecute = payload.commandModeConfirmBeforeExecute
+        // A backup may turn command approval on, never off.
+        self.commandModeConfirmBeforeExecute = self.commandModeConfirmBeforeExecute || payload.commandModeConfirmBeforeExecute
         self.commandModeLinkedToGlobal = payload.commandModeLinkedToGlobal
         self.rewriteModeHotkeyShortcut = payload.rewriteModeHotkeyShortcut
         self.rewriteModeShortcutEnabled = payload.rewriteModeShortcutEnabled

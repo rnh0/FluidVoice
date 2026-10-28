@@ -24,8 +24,10 @@ final class UserDefaults {
     static var executed: [String] = []
     static var delay = false
     static var pending: CheckedContinuation<CommandResult, Never>?
+    static var afterExecute: (() -> Void)?
     func execute(command: String, workingDirectory: String?) async -> CommandResult {
         Self.executed.append(command)
+        Self.afterExecute?()
         if Self.delay {
             return await withCheckedContinuation { Self.pending = $0 }
         }
@@ -50,6 +52,7 @@ final class UserDefaults {
     let enableAIStreaming = true
     func analyticsAIModelDescriptor(for mode: Mode) -> String { "fake" }
     func getAPIKey(for provider: String) -> String? { nil }
+    func commandModeProviderBaseURL(for provider: String) -> String { "https://fake.invalid" }
     func isReasoningModel(_ model: String) -> Bool { false }
     func isTemperatureUnsupported(_ model: String, baseURL: String) -> Bool { false }
     func getReasoningConfig(forModel: String, provider: String) -> ReasoningConfig? { nil }
@@ -502,11 +505,14 @@ enum LLMError: Error { case invalidRequest(String), invalidResponse }
 
     static func cancelVoiceConfirmationAfterCompletedTool() async {
         let service = self.fixture()
-        SettingsStore.shared.commandModeConfirmBeforeExecute = true
         LLMClient.shared.delay = false
         LLMClient.shared.responses = [.tool, self.destructiveResponse]
         var valid = true
+        // "Ask first" now approves every command, so the completed first tool comes from a
+        // "Run directly" turn; approval is switched on before the model proposes the second.
+        TerminalService.afterExecute = { SettingsStore.shared.commandModeConfirmBeforeExecute = true }
         await service.processUserCommand("check then delete by voice", isOutputValid: { valid })
+        TerminalService.afterExecute = nil
         self.check(TerminalService.executed == ["fake command"] && service.pendingCommand != nil, "Fixture did not execute one tool before deferred confirmation")
         valid = false
         self.check(service.cancelInvalidPendingCommand(), "Voice confirmation after completed tool was not canceled")

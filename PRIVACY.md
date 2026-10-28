@@ -17,6 +17,9 @@ traffic. The runtime check (step 9 below) is still to do.
 | History retention | `Persistence/SettingsStore+HistoryPrivacy.swift`, `Services/TranscriptionHistoryRetentionService.swift`, Settings → Dictation → "Keep History For" | 1 / 7 / 30 / 90 / 365 days or forever; **default 30 days**. Unstarred dictations and their saved audio are deleted after loading, after each change (new dictation, backup restore), when the setting changes, and hourly. Starred entries are kept. |
 | Window titles off | Same files; Settings → "Save Window Titles" | New history entries store an empty window title unless you turn this on. Existing entries keep theirs until they expire or you clear history. |
 | No prompt traces in logs | `Services/RewriteModeService.swift` (`logPromptTrace`) | With `FLUID_LOCAL_ONLY`, Edit-mode prompt tracing (selected text, prompts, answers) is never written, whatever `RewriteModeDiagnosticsEnabled` / `FLUID_PROMPT_TRACE` say. |
+| Command Mode asks before every command | `Services/CommandModeService.swift` (`processNextTurn`), `Views/CommandModeView.swift` | "Ask first" (the default) now shows the review card for every model-proposed shell command. Upstream only asked when a substring denylist matched, so commands like `find … -delete`, `curl … \| zsh` or `osascript` ran unasked. A restored backup can turn approval on, never off. Security audit lead 1. |
+| Provider endpoint binding on backup restore | `Persistence/SettingsStore.swift` (`sanitizedRestoredProviders`, `restore`), `Persistence/SettingsStore+CommandMode.swift`, `Services/CommandModeService.swift` | Imported providers are trimmed and de-duplicated by canonical key, and Command Mode sends requests to the same endpoint its verification check uses. Previously a crafted backup could keep Command Mode "verified" while sending the Keychain API key to another URL. Security audit lead 2. |
+| Model download path containment | `Networking/ModelDownloader.swift` (`containedDestination`) | File paths from the Hugging Face tree listing must be plain relative paths inside the requested item and must stay under the model directory before anything is deleted, created or moved. Security audit lead 4. The FluidAudio dependency's own downloader has the same pattern and is not fixed (needs a FluidAudio change). |
 | CI | `.github/workflows/`, `scripts/fork-sign-and-package.sh` | See `docs/fork-release.md`. The build fails if any privacy flag is missing from the compiler invocations or if `PRIVATE_AI_PROVIDER` is set. |
 
 `FLUID_NO_UPDATER` and `FLUID_LOCAL_ONLY` are not set in Debug, which is the configuration the test suite runs in:
@@ -128,6 +131,23 @@ curl -s -H "Authorization: Bearer $(cat ~/Library/Application\ Support/com.Fluid
 
 Any process running as your user can read the token file. The token keeps out browsers and other users,
 not your own processes. Dictionary changes apply live (`parakeetVocabularyDidChange` → `ASRService`).
+
+## Command Mode (future work)
+
+Command Mode is off unless you use it: its hotkey is disabled by default, and it refuses to run until a chat provider is
+verified (a successful test request to that endpoint, stored as a SHA-256 fingerprint of base URL and API key). "Verified"
+means the endpoint answered; it says nothing about whether the model is trustworthy.
+
+In this fork every proposed command needs approval. That is deliberately strict. If Command Mode turns out to be useful,
+possible improvements, in order of safety:
+
+1. An allowlist of read-only commands (`ls`, `pwd`, `cat` within the home folder) that may run unasked, parsed as argv
+   rather than matched as strings.
+2. Run commands in a sandbox (`sandbox-exec` profile or a separate low-privilege user) with no network by default.
+3. Treat command output as untrusted: cap its size, and require approval for any command proposed after output from
+   files or the network entered the conversation.
+
+Command Mode passes the app's full environment to `/bin/zsh -c`, and the shell is not covered by the egress policy.
 
 ## Recommended: block the app in Little Snitch
 

@@ -49,6 +49,37 @@ jobs:
       - name: Fork policy tests
         run: sh Tests/run_fork_build_policy_tests.sh
 
+      - name: Archive (Release configuration)
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/FluidVoice.xcarchive
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -project Fluid.xcodeproj \
+            -scheme Fluid \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -disableAutomaticPackageResolution \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            > build/archive.log 2>&1 || { grep -E 'error:' build/archive.log | head -50; tail -100 build/archive.log; exit 1; }
+          grep -E '^\*\* ' build/archive.log
+          # Prove the privacy switches reached the compiler, and the private provider did not.
+          for flag in FLUID_NO_ANALYTICS FLUID_NO_UPDATER FLUID_LOCAL_ONLY; do
+            grep -qE -- "-D ?$flag( |$)" build/archive.log || { echo "::error::$flag missing from swiftc invocations"; exit 1; }
+          done
+          if grep -qE -- "-D ?PRIVATE_AI_PROVIDER( |$)" build/archive.log; then
+            echo "::error::PRIVATE_AI_PROVIDER must not be set"; exit 1
+          fi
+
+      # Imported only after the archive step (which ad-hoc signs), so dependency build code never
+      # runs while the signing keychain is unlocked.
       - name: Import signing identity
         id: signing
         env:
@@ -88,35 +119,6 @@ jobs:
           # Self-signed certificates are not "valid" for policy checks, so list all identities.
           security find-identity -p codesigning "$KEYCHAIN"
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
-
-      - name: Archive (Release configuration)
-        env:
-          ARCHIVE_PATH: ${{ runner.temp }}/FluidVoice.xcarchive
-        run: |
-          set -euo pipefail
-          mkdir -p build
-          xcodebuild archive \
-            -project Fluid.xcodeproj \
-            -scheme Fluid \
-            -configuration Release \
-            -destination 'generic/platform=macOS' \
-            -archivePath "$ARCHIVE_PATH" \
-            -onlyUsePackageVersionsFromResolvedFile \
-            -disableAutomaticPackageResolution \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="" \
-            > build/archive.log 2>&1 || { grep -E 'error:' build/archive.log | head -50; tail -100 build/archive.log; exit 1; }
-          grep -E '^\*\* ' build/archive.log
-          # Prove the privacy switches reached the compiler, and the private provider did not.
-          for flag in FLUID_NO_ANALYTICS FLUID_NO_UPDATER FLUID_LOCAL_ONLY; do
-            grep -qE -- "-D ?$flag( |$)" build/archive.log || { echo "::error::$flag missing from swiftc invocations"; exit 1; }
-          done
-          if grep -qE -- "-D ?PRIVATE_AI_PROVIDER( |$)" build/archive.log; then
-            echo "::error::PRIVATE_AI_PROVIDER must not be set"; exit 1
-          fi
 
       - name: Sign and package
         id: package
