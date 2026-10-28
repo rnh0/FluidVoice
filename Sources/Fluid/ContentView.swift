@@ -527,13 +527,13 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .dictationPromptShortcutsChanged)) { _ in
                 self.hotkeyManager?.updatePromptShortcutAssignments(SettingsStore.shared.dictationPromptShortcutAssignments())
             }
-            // Local UI diagnostics, same defaults gate as GlobalHotkeyManager+DebugTrigger.
+            // Local UI diagnostics, same gate as GlobalHotkeyManager+DebugTrigger (Debug builds only).
             .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.FluidApp.debug.toggleSidebar"))) { _ in
-                guard UserDefaults.standard.bool(forKey: "FluidDebugRemoteToggleEnabled") else { return }
+                guard GlobalHotkeyManager.debugRemoteTriggersEnabled else { return }
                 self.toggleSidebar()
             }
             .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.FluidApp.debug.openSettings"))) { _ in
-                guard UserDefaults.standard.bool(forKey: "FluidDebugRemoteToggleEnabled") else { return }
+                guard GlobalHotkeyManager.debugRemoteTriggersEnabled else { return }
                 self.menuBarManager.openPreferencesFromUI()
             }
             .onReceive(NotificationCenter.default.publisher(for: .settingsBackupDidRestore)) { _ in

@@ -3,10 +3,20 @@ import Foundation
 // MARK: - Local diagnostics trigger
 
 extension GlobalHotkeyManager {
+    /// Fork policy: Debug builds only. Any process can post distributed notifications, so in Release
+    /// they must never start recording or paste a transcript, whatever the defaults flag says.
+    nonisolated static var debugRemoteTriggersEnabled: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "FluidDebugRemoteToggleEnabled")
+        #else
+        false
+        #endif
+    }
+
     /// Lets a local script run the exact hotkey toggle path for latency
     /// reproduction. Inert unless the defaults flag is set on this machine.
     func registerDebugToggleTriggerIfEnabled() {
-        guard UserDefaults.standard.bool(forKey: "FluidDebugRemoteToggleEnabled") else { return }
+        guard Self.debugRemoteTriggersEnabled else { return }
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.FluidApp.debug.toggleRecording"),
             object: nil,
