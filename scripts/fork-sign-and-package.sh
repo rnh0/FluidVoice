@@ -1,9 +1,10 @@
 #!/bin/bash
 # Re-sign an archived FluidVoice.app with one stable identity and package it.
 #
-# Usage: scripts/fork-sign-and-package.sh <archive.xcarchive> <output-dir> <signing-identity>
+# Usage: scripts/fork-sign-and-package.sh <archive.xcarchive> <output-dir> <signing-identity> [package-version]
 #   signing-identity: a codesigning identity name or SHA-1 in the default keychain search list,
 #                     or "-" for ad-hoc (permissions must then be re-granted after every update).
+#   package-version:  name for the zip, e.g. the release tag; defaults to the app's version.
 #
 # The signing steps follow upstream's PR archive workflow: Xcode flattens CTranscribe's version
 # symlinks, so the framework layout is restored before nested code is signed inside-out.
@@ -13,6 +14,7 @@ set -euo pipefail
 ARCHIVE_PATH="$1"
 OUTPUT_DIR="$2"
 IDENTITY="$3"
+PACKAGE_VERSION="${4:-}"
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/FluidVoice.app"
 EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/FluidVoice"
@@ -69,7 +71,7 @@ echo "Designated requirement (what macOS ties Microphone/Accessibility grants to
 codesign -d -r- "$APP_PATH" 2>&1 | sed -n 's/^designated => /  /p'
 
 mkdir -p "$OUTPUT_DIR"
-ZIP_PATH="$OUTPUT_DIR/FluidVoice-$VERSION.zip"
+ZIP_PATH="$OUTPUT_DIR/FluidVoice-${PACKAGE_VERSION:-$VERSION}.zip"
 rm -f "$ZIP_PATH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 (cd "$OUTPUT_DIR" && shasum -a 256 "$(basename "$ZIP_PATH")" > "$(basename "$ZIP_PATH").sha256")

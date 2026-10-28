@@ -39,8 +39,9 @@ that requirement is the code hash, which changes every build, so you would re-gr
 update. With a fixed certificate it becomes `identifier "com.FluidApp.app" and certificate root = H"…"`,
 which stays the same across builds. The sign step prints the designated requirement so you can compare.
 
-Notarization is not set up. Without it, Gatekeeper blocks the first launch: right-click the app, choose Open, or
-use System Settings → Privacy & Security → Open Anyway.
+Notarization is not set up. Without it, Gatekeeper blocks the first launch ("Apple could not verify…"). Since
+macOS 15, right-click → Open no longer bypasses this: click Done, then System Settings → Privacy & Security →
+Open Anyway, and confirm on the next launch. Repeat once per release.
 
 ### Option A: self-signed certificate (free)
 
@@ -97,9 +98,24 @@ git tag v1.6.13-fork.1 origin/main && git push origin v1.6.13-fork.1
 ```
 
 or on github.com: Releases → Draft a new release → choose a tag → type `v1.6.13-fork.1` → "Create new tag on
-publish", target `main` → Publish release. Creating the tag starts `release.yml`, which attaches the signed zip,
-its checksum and `build-info.txt` to that release (about 15 minutes). The run first waits at "Waiting for review": open it, click Review deployments,
-tick `release`, then Approve and deploy.
+publish", target `main` → Publish release. Creating the tag starts `release.yml`, which attaches the signed zip
+(`FluidVoice-<tag without v>.zip`), its checksum and `build-info.txt` to that release (about 15 minutes).
+The run first waits at "Waiting for review": open it, click Review deployments, tick `release`, then
+Approve and deploy.
+
+From the command line:
+
+```bash
+gh release create v1.6.13-fork.5 --repo rnh0/FluidVoice --target main --title v1.6.13-fork.5 --notes "…"
+```
+
+```bash
+RUN=$(gh run list --repo rnh0/FluidVoice --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId'); ENV=$(gh api repos/rnh0/FluidVoice/environments/release --jq .id)
+```
+
+```bash
+gh api -X POST repos/rnh0/FluidVoice/actions/runs/$RUN/pending_deployments -F "environment_ids[]=$ENV" -f state=approved -f comment=approved
+```
 
 ## Verifying a download
 
