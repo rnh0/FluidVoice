@@ -82,9 +82,15 @@ Tagged releases fail without these secrets. Manual runs fall back to ad-hoc sign
 
 ## Releasing
 
+Either push a tag:
+
 ```bash
-git tag v1.6.13-fork.1 && git push origin v1.6.13-fork.1
+git tag v1.6.13-fork.1 origin/main && git push origin v1.6.13-fork.1
 ```
+
+or on github.com: Releases → Draft a new release → choose a tag → type `v1.6.13-fork.1` → "Create new tag on
+publish", target `main` → Publish release. Creating the tag starts `release.yml`, which attaches the signed zip,
+its checksum and `build-info.txt` to that release (about 15 minutes).
 
 ## Verifying a download
 
