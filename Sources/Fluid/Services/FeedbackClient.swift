@@ -82,13 +82,14 @@ struct FeedbackClient {
     func send(_ submission: FeedbackSubmission) async throws {
         guard submission.isValid else { throw Failure.invalid }
         guard let url = URL(string: "https://altic.dev/api/fluid/feedback") else { throw Failure.invalid }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else { throw Failure.blockedByBuildPolicy }
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder().encode(submission)
         do {
-            let (data, response) = try await self.session.data(for: request)
+            let (data, response) = try await self.session.data(for: request, delegate: EgressRedirectGuard.shared)
             guard let response = response as? HTTPURLResponse else { throw Failure.unconfirmed }
             switch response.statusCode {
             case 200...299:
@@ -110,7 +111,7 @@ struct FeedbackClient {
     private struct Receipt: Decodable { let message: String }
 
     enum Failure: LocalizedError {
-        case invalid, rateLimited, rejected, server, connection, unconfirmed
+        case invalid, rateLimited, rejected, server, connection, unconfirmed, blockedByBuildPolicy
 
         var errorDescription: String? {
             switch self {
@@ -120,6 +121,7 @@ struct FeedbackClient {
             case .server: "Feedback is temporarily unavailable. Please try again later. Your draft is still here."
             case .connection: "Delivery couldn’t be confirmed. Check your connection before retrying; your message may already have arrived. Your draft is still here."
             case .unconfirmed: "We couldn’t confirm delivery. Your draft is still here; please try again later."
+            case .blockedByBuildPolicy: ForkBuildPolicy.localOnlyRejectionMessage
             }
         }
     }

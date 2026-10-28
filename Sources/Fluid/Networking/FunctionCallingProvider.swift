@@ -202,6 +202,9 @@ final class FunctionCallingProvider {
         guard let url = URL(string: fullEndpoint) else {
             return .error("Invalid Base URL")
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            return .error(ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         let isLocal = self.isLocalEndpoint(endpoint)
 
@@ -252,7 +255,7 @@ final class FunctionCallingProvider {
         request.httpBody = jsonData
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request, delegate: EgressRedirectGuard.shared)
 
             // Log response
             if let responseString = String(data: data, encoding: .utf8) {
@@ -342,6 +345,9 @@ final class FunctionCallingProvider {
         guard let url = URL(string: fullEndpoint) else {
             return .error("Invalid Base URL")
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            return .error(ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         let isLocal = self.isLocalEndpoint(endpoint)
 
@@ -377,7 +383,7 @@ final class FunctionCallingProvider {
         request.httpBody = jsonData
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request, delegate: EgressRedirectGuard.shared)
 
             if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                 let errText = String(data: data, encoding: .utf8) ?? "Unknown error"

@@ -260,6 +260,9 @@ final class ModelRepository {
             )
             throw FetchError.invalidURL(details: "Could not construct valid URL from base: \(baseURL)")
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            throw FetchError.invalidURL(details: ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         DebugLogger.shared.debug(
             "fetchModels: Fetching models for '\(providerID)' from \(urlString) (isAnthropic=\(isAnthropic))",
@@ -284,7 +287,7 @@ final class ModelRepository {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await URLSession.shared.data(for: request, delegate: EgressRedirectGuard.shared)
         } catch {
             let errorDetails = self.detailedNetworkError(error)
             DebugLogger.shared.error(

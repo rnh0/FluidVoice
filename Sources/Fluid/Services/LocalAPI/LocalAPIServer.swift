@@ -24,6 +24,11 @@ final class LocalAPIServer {
             return
         }
 
+        guard let token = LocalAPIAccessPolicy.loadOrCreateToken() else {
+            DebugLogger.shared.error("Local API token unavailable; not starting", source: "LocalAPIServer")
+            return
+        }
+
         do {
             guard let port = NWEndpoint.Port(rawValue: config.port) else {
                 DebugLogger.shared.error("Local API invalid port", source: "LocalAPIServer")
@@ -31,6 +36,8 @@ final class LocalAPIServer {
             }
 
             let parameters = NWParameters.tcp
+            // Bind to loopback only, so the port is not reachable from other hosts at all.
+            parameters.requiredInterfaceType = .loopback
 
             let listener = try NWListener(using: parameters, on: port)
             listener.newConnectionHandler = { [weak self] connection in
@@ -45,7 +52,12 @@ final class LocalAPIServer {
                         return
                     }
 
-                    let handler = LocalAPIConnectionHandler(connection: connection, router: self.router)
+                    let handler = LocalAPIConnectionHandler(
+                        connection: connection,
+                        router: self.router,
+                        port: config.port,
+                        token: token
+                    )
                     let id = ObjectIdentifier(handler)
                     handler.onClose = { [weak self] in
                         Task { @MainActor in
@@ -114,13 +126,17 @@ final class LocalAPIServer {
 private final class LocalAPIConnectionHandler {
     private let connection: NWConnection
     private let router: LocalAPIRouter
+    private let port: UInt16
+    private let token: String
     private var buffer = Data()
     private var isClosed = false
     var onClose: (() -> Void)?
 
-    init(connection: NWConnection, router: LocalAPIRouter) {
+    init(connection: NWConnection, router: LocalAPIRouter, port: UInt16, token: String) {
         self.connection = connection
         self.router = router
+        self.port = port
+        self.token = token
     }
 
     func start(on queue: DispatchQueue) {
@@ -152,6 +168,10 @@ private final class LocalAPIConnectionHandler {
 
                 switch self.parseRequestIfComplete() {
                 case let .request(request):
+                    if let rejection = LocalAPIAccessPolicy.rejection(for: request, port: self.port, token: self.token) {
+                        self.send(rejection)
+                        return
+                    }
                     let response = await self.router.route(request)
                     self.send(response)
                 case let .failure(response):
@@ -276,6 +296,8 @@ private final class LocalAPIConnectionHandler {
         case 200: return "OK"
         case 204: return "No Content"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
         case 413: return "Payload Too Large"

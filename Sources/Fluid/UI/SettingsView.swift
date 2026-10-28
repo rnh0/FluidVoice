@@ -762,6 +762,50 @@ struct SettingsView: View {
                                         .settingsSearchTarget(.transcriptionHistory)
                                         Divider().opacity(0.2)
 
+                                        HStack(alignment: .center) {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("Keep History For")
+                                                    .font(self.theme.typography.bodyStrong)
+                                                    .foregroundStyle(self.settingsTitleText)
+                                                Text("Older dictations and their saved audio are deleted automatically. Starred entries are kept.")
+                                                    .font(self.theme.typography.bodySmall)
+                                                    .foregroundStyle(self.settingsSecondaryText)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            FluidDropdownPicker(
+                                                "History retention",
+                                                selectedTitle: SettingsStore.shared.transcriptionHistoryRetention.displayName,
+                                                selection: Binding(
+                                                    get: { SettingsStore.shared.transcriptionHistoryRetention },
+                                                    set: { SettingsStore.shared.transcriptionHistoryRetention = $0 }
+                                                )
+                                            ) {
+                                                ForEach(SettingsStore.HistoryRetention.allCases) { retention in
+                                                    Text(retention.displayName).tag(retention)
+                                                }
+                                            }
+                                            .fluidDropdownStyle()
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .frame(minWidth: 170, alignment: .trailing)
+                                        }
+                                        .disabled(!SettingsStore.shared.saveTranscriptionHistory)
+                                        .settingsSearchTarget(.historyRetention)
+                                        Divider().opacity(0.2)
+
+                                        self.optionToggleRow(
+                                            title: "Save Window Titles",
+                                            description: "Store the window title with each dictation. Titles often contain document names, email subjects or URLs.",
+                                            isOn: Binding(
+                                                get: { SettingsStore.shared.saveWindowTitlesInHistory },
+                                                set: { SettingsStore.shared.saveWindowTitlesInHistory = $0 }
+                                            )
+                                        )
+                                        .disabled(!SettingsStore.shared.saveTranscriptionHistory)
+                                        .settingsSearchTarget(.historyWindowTitles)
+                                        Divider().opacity(0.2)
+
                                         self.optionToggleRow(
                                             title: "Save Audio With History",
                                             description: "Store actual microphone audio locally with dictation history. Disabled by default.",
