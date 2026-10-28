@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// Fork feature: the secondary dictation shortcut can dictate with its own speech model (for example
-/// Whisper pinned to Swedish), and the primary shortcut switches back. See PRIVACY.md.
+/// Whisper pinned to Swedish), and the primary shortcut switches back.
 extension SettingsStore {
     private var secondaryDictationSpeechModelKey: String { "SecondaryDictationSpeechModel" }
     private var primarySpeechModelRestoreKey: String { "PrimarySpeechModelRestore" }
