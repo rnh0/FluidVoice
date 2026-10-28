@@ -37,6 +37,8 @@ enum SettingsSearchTarget: Hashable {
     case textInsertionMode
     case spokenSend
     case transcriptionHistory
+    case historyRetention
+    case historyWindowTitles
     case audioHistory
     case usageStreak
     case skipSilentRecordings
@@ -98,6 +100,8 @@ enum SettingsSearchTarget: Hashable {
              .textInsertionMode,
              .spokenSend,
              .transcriptionHistory,
+             .historyRetention,
+             .historyWindowTitles,
              .audioHistory,
              .audioStorage,
              .usageStreak,
@@ -206,6 +210,8 @@ struct SettingsSearchAvailability {
              .textInsertionMode,
              .spokenSend,
              .transcriptionHistory,
+             .historyRetention,
+             .historyWindowTitles,
              .audioHistory,
              .usageStreak,
              .skipSilentRecordings,
@@ -323,6 +329,16 @@ enum SettingsSearchIndex {
             target: .transcriptionHistory,
             title: "Save Transcription History",
             terms: ["stats tracking privacy remember transcript"]
+        ),
+        .init(
+            target: .historyRetention,
+            title: "Keep History For",
+            terms: ["retention delete old transcripts days privacy expire"]
+        ),
+        .init(
+            target: .historyWindowTitles,
+            title: "Save Window Titles",
+            terms: ["window title document name privacy history"]
         ),
         .init(
             target: .audioHistory,

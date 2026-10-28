@@ -419,6 +419,8 @@ final class RewriteModeService: ObservableObject {
     }
 
     private func logPromptTrace(_ title: String, value: String) {
+        // Traces contain selected text and model answers; never write them to the log in fork builds.
+        guard !ForkBuildPolicy.localOnlyEgress else { return }
         let line = "[PromptTrace][Edit] \(title):\n\(value)"
         if self.forcePromptTraceToConsole {
             print(line)

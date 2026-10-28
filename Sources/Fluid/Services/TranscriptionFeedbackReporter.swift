@@ -44,7 +44,7 @@ enum TranscriptionFeedbackReporter {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(payload)
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await URLSession.shared.data(for: request, delegate: EgressRedirectGuard.shared)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ReporterError.invalidResponse
         }

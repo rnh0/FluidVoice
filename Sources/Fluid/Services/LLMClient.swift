@@ -560,7 +560,7 @@ final nonisolated class LLMClient: @unchecked Sendable {
     private func processNonStreaming(request: URLRequest, config: Config, session: URLSession) async throws -> Response {
         DebugLogger.shared.debug("LLMClient: Making non-streaming request to \(request.url?.absoluteString ?? "unknown")", source: "LLMClient")
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: EgressRedirectGuard.shared)
         self.benchmark(config, "response_data bytes=\(data.count)")
 
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
@@ -601,7 +601,7 @@ final nonisolated class LLMClient: @unchecked Sendable {
     private func processResponsesStreaming(request: URLRequest, config: Config, session: URLSession) async throws -> Response {
         DebugLogger.shared.debug("LLMClient: Starting Responses streaming request to \(request.url?.absoluteString ?? "unknown")", source: "LLMClient")
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request, delegate: EgressRedirectGuard.shared)
         self.benchmark(config, "response_headers")
 
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
@@ -712,7 +712,7 @@ final nonisolated class LLMClient: @unchecked Sendable {
     private func processStreaming(request: URLRequest, config: Config, session: URLSession) async throws -> Response {
         DebugLogger.shared.debug("LLMClient: Starting streaming request to \(request.url?.absoluteString ?? "unknown")", source: "LLMClient")
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request, delegate: EgressRedirectGuard.shared)
         self.benchmark(config, "response_headers")
 
         // Check for HTTP errors

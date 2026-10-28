@@ -61,3 +61,19 @@ nonisolated enum ForkBuildPolicy {
         return Set(entries.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
     }()
 }
+
+/// Refuses HTTP redirects that would leave the egress policy, so an allowed loopback endpoint cannot
+/// forward a request elsewhere. Pass as the task delegate of every text-carrying request.
+final nonisolated class EgressRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = EgressRedirectGuard()
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(ForkBuildPolicy.allowsTextEgress(to: request.url) ? request : nil)
+    }
+}

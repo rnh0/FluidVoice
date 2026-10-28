@@ -24,6 +24,7 @@ final class DictationAudioHistoryStore {
     static let shared = SettingsStore()
     var audioHistoryBudgetBytes: Int64 { 1_000_000 }
     var weekendsDontBreakStreak: Bool { false }
+    var saveWindowTitlesInHistory: Bool { true }
 }
 
 final class DebugLogger {

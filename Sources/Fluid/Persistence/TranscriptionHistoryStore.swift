@@ -355,7 +355,7 @@ final class TranscriptionHistoryStore: ObservableObject {
             rawText: rawText,
             processedText: processedText,
             appName: appName,
-            windowTitle: windowTitle,
+            windowTitle: SettingsStore.shared.saveWindowTitlesInHistory ? windowTitle : "",
             wasAIProcessed: wasAIProcessed ?? (processingModel != nil && aiProcessingError == nil),
             processingModel: processingModel,
             transcriptionDurationMilliseconds: transcriptionDurationMilliseconds,
@@ -423,6 +423,16 @@ final class TranscriptionHistoryStore: ObservableObject {
         }
 
         self.persist(deletes: Array(ids))
+    }
+
+    /// Deletes unstarred entries (and their saved audio) older than `cutoff`. Returns how many were deleted.
+    @discardableResult
+    func deleteUnstarredEntries(olderThan cutoff: Date) -> Int {
+        guard self.hasLoaded else { return 0 }
+        let expired = Set(self.entries.lazy.filter { !$0.isStarred && $0.timestamp < cutoff }.map(\.id))
+        guard !expired.isEmpty else { return 0 }
+        self.deleteEntries(ids: expired)
+        return expired.count
     }
 
     /// Clear all history

@@ -972,7 +972,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
 
         // Make the request
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request, delegate: EgressRedirectGuard.shared)
             // A late result must never label a different model or changed credentials.
             guard verificationIdentity == self.modelVerificationIdentity(for: providerID) else { return }
 

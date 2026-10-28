@@ -89,7 +89,7 @@ struct FeedbackClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONEncoder().encode(submission)
         do {
-            let (data, response) = try await self.session.data(for: request)
+            let (data, response) = try await self.session.data(for: request, delegate: EgressRedirectGuard.shared)
             guard let response = response as? HTTPURLResponse else { throw Failure.unconfirmed }
             switch response.statusCode {
             case 200...299:
