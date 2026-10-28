@@ -94,11 +94,17 @@ final class CompactSpeechModelReleaseCatalog: ObservableObject {
     }
 
     func descriptor(for variant: Variant) -> Descriptor {
-        self.snapshot.descriptors[variant] ?? ParakeetSpeechModelCatalog.descriptor(for: variant)
+        guard Self.usesFeed else { return ParakeetSpeechModelCatalog.descriptor(for: variant) }
+        return self.snapshot.descriptors[variant] ?? ParakeetSpeechModelCatalog.descriptor(for: variant)
     }
+
+    /// Fork policy: local-only builds never fetch the feed and ignore a cached one, so compact models
+    /// come only from the archive hashes pinned in `ParakeetSpeechModelCatalog`. See PRIVACY.md.
+    nonisolated static let usesFeed = !ForkBuildPolicy.localOnlyEgress
 
     /// Event-driven checks join one worker. A failure never removes the last good feed.
     func refreshIfNeeded(force: Bool = false) async {
+        guard Self.usesFeed else { return }
         if let refreshTask { await refreshTask.value; return }
         let task = Task { [weak self] in
             guard let self else { return }
