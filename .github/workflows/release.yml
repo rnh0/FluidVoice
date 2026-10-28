@@ -122,9 +122,11 @@ jobs:
         env:
           ARCHIVE_PATH: ${{ runner.temp }}/FluidVoice.xcarchive
           IDENTITY: ${{ steps.signing.outputs.identity }}
+          # The release tag (e.g. v1.6.13-fork.4) names the zip; the app's own version stays upstream's.
+          PACKAGE_VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          scripts/fork-sign-and-package.sh "$ARCHIVE_PATH" dist "$IDENTITY" | tee build/sign.log
+          scripts/fork-sign-and-package.sh "$ARCHIVE_PATH" dist "$IDENTITY" "${PACKAGE_VERSION#v}" | tee build/sign.log
           ZIP_PATH="$(sed -n 's/^zip-path=//p' build/sign.log)"
           {
             echo "commit=$GITHUB_SHA"
