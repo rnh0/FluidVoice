@@ -313,6 +313,9 @@ final nonisolated class LLMClient: @unchecked Sendable {
         guard let url = URL(string: endpoint) else {
             throw LLMError.invalidURL
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            throw LLMError.invalidRequest(ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         let body = useResponsesAPI ? self.buildResponsesBody(config) : self.buildChatCompletionsBody(config)
 

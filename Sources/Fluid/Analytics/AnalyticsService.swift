@@ -14,12 +14,19 @@ final class AnalyticsService {
     }
 
     func bootstrap() {
+        #if FLUID_NO_ANALYTICS
+        return
+        #else
         self.submit { core, context in
             await core.bootstrap(context: context)
         }
+        #endif
     }
 
     func setDetailedAnalyticsEnabled(_ enabled: Bool) {
+        #if FLUID_NO_ANALYTICS
+        return
+        #else
         let consentGeneration = self.detailedConsentGate.advance()
         let context = Self.context(
             detailedAnalyticsEnabled: enabled,
@@ -28,6 +35,7 @@ final class AnalyticsService {
         Task.detached(priority: .background) { [core] in
             await core.setDetailedAnalyticsEnabled(context: context)
         }
+        #endif
     }
 
     /// Records one active-user event per local day.
@@ -209,6 +217,9 @@ final class AnalyticsService {
     private func submit(
         _ operation: @escaping @Sendable (AnalyticsCore, AnalyticsContext) async -> Void
     ) {
+        #if FLUID_NO_ANALYTICS
+        return
+        #else
         let context = Self.context(
             detailedAnalyticsEnabled: SettingsStore.shared.shareDetailedAnalytics,
             detailedConsentGeneration: self.detailedConsentGate.currentGeneration
@@ -216,6 +227,7 @@ final class AnalyticsService {
         Task.detached(priority: .background) { [core] in
             await operation(core, context)
         }
+        #endif
     }
 
     private static func context(
@@ -653,6 +665,9 @@ private actor AnalyticsCore {
     }
 
     private func send(items: [AnalyticsOutboxItem], config: AnalyticsConfig) async throws -> Int {
+        #if FLUID_NO_ANALYTICS
+        throw URLError(.cancelled)
+        #else
         guard let url = URL(string: config.postHogHost)?.appendingPathComponent("batch") else {
             throw URLError(.badURL)
         }
@@ -673,5 +688,6 @@ private actor AnalyticsCore {
             throw URLError(.badServerResponse)
         }
         return httpResponse.statusCode
+        #endif
     }
 }

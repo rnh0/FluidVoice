@@ -260,6 +260,9 @@ final class ModelRepository {
             )
             throw FetchError.invalidURL(details: "Could not construct valid URL from base: \(baseURL)")
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            throw FetchError.invalidURL(details: ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         DebugLogger.shared.debug(
             "fetchModels: Fetching models for '\(providerID)' from \(urlString) (isAnthropic=\(isAnthropic))",

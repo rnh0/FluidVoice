@@ -202,6 +202,9 @@ final class FunctionCallingProvider {
         guard let url = URL(string: fullEndpoint) else {
             return .error("Invalid Base URL")
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            return .error(ForkBuildPolicy.localOnlyRejectionMessage)
+        }
 
         let isLocal = self.isLocalEndpoint(endpoint)
 
@@ -341,6 +344,9 @@ final class FunctionCallingProvider {
 
         guard let url = URL(string: fullEndpoint) else {
             return .error("Invalid Base URL")
+        }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            return .error(ForkBuildPolicy.localOnlyRejectionMessage)
         }
 
         let isLocal = self.isLocalEndpoint(endpoint)

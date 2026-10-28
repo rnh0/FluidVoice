@@ -2845,7 +2845,7 @@ final class SettingsStore: ObservableObject {
     // MARK: - Update Check Helper
 
     func shouldCheckForUpdates() -> Bool {
-        guard self.autoUpdateCheckEnabled else { return false }
+        guard !ForkBuildPolicy.updaterCompiledOut, self.autoUpdateCheckEnabled else { return false }
 
         guard let lastCheck = lastUpdateCheckDate else {
             // Never checked before, should check

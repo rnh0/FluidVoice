@@ -883,6 +883,13 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
             }
             return
         }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            await MainActor.run {
+                self.updateConnectionStatus(.failed, for: providerID)
+                self.setConnectionError(ForkBuildPolicy.localOnlyRejectionMessage, for: providerID)
+            }
+            return
+        }
 
         // Build the request based on provider type
         var request = URLRequest(url: url)

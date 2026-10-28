@@ -1,0 +1,179 @@
+name: Release
+
+# Builds the fork's Release configuration (FLUID_NO_ANALYTICS, FLUID_NO_UPDATER, FLUID_LOCAL_ONLY;
+# PRIVATE_AI_PROVIDER unset), signs it with one stable identity, attests provenance and,
+# for a v* tag, publishes a GitHub Release. See PRIVACY.md and docs/fork-release.md.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Major-version pin. Hosted images drop old minor releases, so an exact pin breaks within months;
+  # the exact version used is printed and recorded in build-info.txt.
+  XCODE_VERSION: '26'
+
+jobs:
+  release:
+    name: Build, sign and attest
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write      # create the GitHub Release
+      id-token: write      # provenance attestation (Sigstore)
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Fork policy tests
+        run: sh Tests/run_fork_build_policy_tests.sh
+
+      - name: Import signing identity
+        id: signing
+        env:
+          P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$P12_BASE64" || -z "$IDENTITY" ]]; then
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              echo "::error::Tagged releases need MACOS_SIGNING_P12_BASE64, MACOS_SIGNING_P12_PASSWORD and MACOS_SIGNING_IDENTITY (see docs/fork-release.md)."
+              exit 1
+            fi
+            echo "::warning::No signing secrets; building ad-hoc. macOS will ask for Microphone and Accessibility again after installing it."
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+          # A self-signed certificate must be trusted for code signing before codesign accepts it.
+          CERT_PEM="$RUNNER_TEMP/signing-cert.pem"
+          security find-certificate -c "$IDENTITY" -p "$KEYCHAIN" > "$CERT_PEM"
+          SUBJECT="$(openssl x509 -in "$CERT_PEM" -noout -subject | sed 's/^subject= *//')"
+          ISSUER="$(openssl x509 -in "$CERT_PEM" -noout -issuer | sed 's/^issuer= *//')"
+          if [[ "$SUBJECT" == "$ISSUER" ]]; then
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$CERT_PEM"
+          fi
+          openssl x509 -in "$CERT_PEM" -noout -subject -fingerprint -sha256
+          # Self-signed certificates are not "valid" for policy checks, so list all identities.
+          security find-identity -p codesigning "$KEYCHAIN"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Archive (Release configuration)
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/FluidVoice.xcarchive
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -project Fluid.xcodeproj \
+            -scheme Fluid \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -disableAutomaticPackageResolution \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            > build/archive.log 2>&1 || { grep -E 'error:' build/archive.log | head -50; tail -100 build/archive.log; exit 1; }
+          grep -E '^\*\* ' build/archive.log
+          # Prove the privacy switches reached the compiler, and the private provider did not.
+          for flag in FLUID_NO_ANALYTICS FLUID_NO_UPDATER FLUID_LOCAL_ONLY; do
+            grep -qE -- "-D ?$flag( |$)" build/archive.log || { echo "::error::$flag missing from swiftc invocations"; exit 1; }
+          done
+          if grep -qE -- "-D ?PRIVATE_AI_PROVIDER( |$)" build/archive.log; then
+            echo "::error::PRIVATE_AI_PROVIDER must not be set"; exit 1
+          fi
+
+      - name: Sign and package
+        id: package
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/FluidVoice.xcarchive
+          IDENTITY: ${{ steps.signing.outputs.identity }}
+        run: |
+          set -euo pipefail
+          scripts/fork-sign-and-package.sh "$ARCHIVE_PATH" dist "$IDENTITY" | tee build/sign.log
+          ZIP_PATH="$(sed -n 's/^zip-path=//p' build/sign.log)"
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "macos=$(sw_vers -productVersion)"
+            echo "signing=$([[ "$IDENTITY" == "-" ]] && echo ad-hoc || echo stable-identity)"
+            echo "swift_conditions=FLUID_NO_ANALYTICS FLUID_NO_UPDATER FLUID_LOCAL_ONLY"
+          } > dist/build-info.txt
+          echo "zip-path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+
+      # Artifact attestations need a public repo (or GitHub Enterprise Cloud for private ones).
+      - name: Attest build provenance
+        if: github.event.repository.visibility == 'public' || vars.ENABLE_ATTESTATIONS == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.zip-path }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: FluidVoice-${{ github.sha }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-logs-${{ github.sha }}
+          path: build/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "Built from $GITHUB_SHA by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Verify with: gh attestation verify <zip> --repo $GITHUB_REPOSITORY"
+
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true

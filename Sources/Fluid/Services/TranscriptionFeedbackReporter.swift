@@ -12,6 +12,7 @@ enum TranscriptionFeedbackReporter {
         case invalidURL
         case invalidResponse
         case httpError(Int)
+        case blockedByBuildPolicy
 
         var errorDescription: String? {
             switch self {
@@ -21,6 +22,8 @@ enum TranscriptionFeedbackReporter {
                 return "Invalid report response."
             case let .httpError(statusCode):
                 return "Report failed with HTTP \(statusCode)."
+            case .blockedByBuildPolicy:
+                return ForkBuildPolicy.localOnlyRejectionMessage
             }
         }
     }
@@ -30,6 +33,9 @@ enum TranscriptionFeedbackReporter {
     static func submit(_ payload: Payload) async throws {
         guard let url = URL(string: self.endpoint) else {
             throw ReporterError.invalidURL
+        }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else {
+            throw ReporterError.blockedByBuildPolicy
         }
 
         var request = URLRequest(url: url)

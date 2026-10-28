@@ -85,6 +85,7 @@ final class OpenAICompatibleProvider: AIProvider {
         }
 
         guard let url = URL(string: fullEndpoint) else { return "Error: Invalid Base URL" }
+        guard ForkBuildPolicy.allowsTextEgress(to: url) else { return "Error: \(ForkBuildPolicy.localOnlyRejectionMessage)" }
 
         let isLocal = self.isLocalEndpoint(endpoint)
 

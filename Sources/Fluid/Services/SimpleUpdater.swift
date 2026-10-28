@@ -19,6 +19,7 @@ enum SimpleUpdateError: Error, LocalizedError {
     case installedAppChanged
     case rollbackUnavailable
     case rollbackRestoreFailed
+    case disabledInThisBuild
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +38,7 @@ enum SimpleUpdateError: Error, LocalizedError {
         case .installedAppChanged: return "The installed app changed. Restart FluidVoice before trying the update again."
         case .rollbackUnavailable: return "No rollback backup is available."
         case .rollbackRestoreFailed: return "Failed to restore a previous version."
+        case .disabledInThisBuild: return "Updates are disabled in this build. Install new versions from the fork's own releases."
         }
     }
 }
@@ -686,6 +688,7 @@ final class SimpleUpdater: ObservableObject {
     }
 
     private func installReleaseArchive(_ release: GHRelease, repo: String) async throws {
+        guard !ForkBuildPolicy.updaterCompiledOut else { throw SimpleUpdateError.disabledInThisBuild }
         let rawVersion = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
         guard let asset = self.releaseArchiveAsset(release, repo: repo) else { throw SimpleUpdateError.noAsset }
 
@@ -808,6 +811,8 @@ final class SimpleUpdater: ObservableObject {
     }
 
     private func fetchReleases(owner: String, repo: String) async throws -> [GHRelease] {
+        // Upstream releases are signed by a team the update validator trusts, so they could replace this fork.
+        guard !ForkBuildPolicy.updaterCompiledOut else { throw SimpleUpdateError.disabledInThisBuild }
         guard let releasesURL = URL(string: "https://api.github.com/repos/\(owner)/\(repo)/releases") else {
             throw SimpleUpdateError.invalidURL
         }
