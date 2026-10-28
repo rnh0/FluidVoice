@@ -9,7 +9,10 @@ Builds run on GitHub-hosted macOS runners. Two workflows:
 
 Both use `-onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution`, so SwiftPM uses exactly
 `Fluid.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. All actions are pinned by commit SHA.
-Xcode is pinned to major version 26 (the exact version is printed and written to `build-info.txt`).
+Runner and Xcode: `macos-26` (arm64) with Xcode 26.6. The source of truth for labels and installed Xcode versions is
+[actions/runner-images](https://github.com/actions/runner-images) (`README.md` and `images/macos/macos-26-arm64-Readme.md`).
+Images keep all minor Xcode releases of their major version and replace only patches, so the minor pin is stable.
+The exact version used is printed and written to `build-info.txt`.
 
 The upstream community workflows (issue intake, PR policy, stale, PR archive) were removed; they are meant for
 the upstream repository and `pr-policy.yml` ran with write permissions on `pull_request_target`.

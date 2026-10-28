@@ -17,9 +17,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Major-version pin. Hosted images drop old minor releases, so an exact pin breaks within months;
-  # the exact version used is printed and recorded in build-info.txt.
-  XCODE_VERSION: '26'
+  # Runner images (github.com/actions/runner-images, images/macos/macos-26-arm64-Readme.md) keep every minor
+  # Xcode release of the image's major version and replace only patch releases, so a minor pin is stable.
+  # Keep in step with build.yml.
+  XCODE_VERSION: '26.6'
 
 jobs:
   release:
